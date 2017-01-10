@@ -88,7 +88,7 @@ public class RadaContentHelper {
 		}
 	};
 
-	public String getUrl_sessionListPage(int assembly) {
+	public static String getUrl_sessionListPage(int assembly) {
 		String result = null;
 		switch (assembly) {
 			case 8:
@@ -105,7 +105,7 @@ public class RadaContentHelper {
 		return result;
 	}
 
-	public String getUrl_deputeesListPage(int assembly) {
+	public static String getUrl_deputeesListPage(int assembly) {
 		String result = null;
 		switch (assembly) {
 			case 8:
@@ -126,33 +126,33 @@ public class RadaContentHelper {
 		return result;
 	}
 
-	public FluentIterable<String> getUrls_votes(Document sessionDayPage) {
+	public static FluentIterable<String> getUrls_votes(Document sessionDayPage) {
 		return FluentIterable.from(sessionDayPage.select("a[href*=/ns_golos?], a[href*=/ns_arh_golos?]")).transform(EXTRACT_HREF);
 		// .transform(FN_PREPEND_BASEURL);
 	}
 
-	public FluentIterable<String> getUrls_writtenRegs(Document sessionDayPage) {
+	public static FluentIterable<String> getUrls_writtenRegs(Document sessionDayPage) {
 		return FluentIterable.from(sessionDayPage.select("a[href*=/ns_reg_write?], a[href*=/ns_arh_reg_write?]")).transform(EXTRACT_HREF);
 	}
 
-	public FluentIterable<String> getUrls_eRegs(Document sessionDayPage) {
+	public static FluentIterable<String> getUrls_eRegs(Document sessionDayPage) {
 		return FluentIterable.from(sessionDayPage.select("a[href*=/ns_reg?], a[href*=/ns_arh_reg?]")).transform(EXTRACT_HREF);
 	}
 
-	public FluentIterable<String> getUrls_sessionDayUrls(Document sessionDetailsPage) {
+	public static FluentIterable<String> getUrls_sessionDayUrls(Document sessionDetailsPage) {
 		return FluentIterable.from(sessionDetailsPage.select("table li a")).transform(EXTRACT_HREF);
 	}
 
-	public Map<String, Integer> getUrls_sessionDetailsPages(Document sessionListPage) {
+	public static Map<String, Integer> getUrls_sessionDetailsPages(Document sessionListPage) {
 		return FluentIterable.from(sessionListPage.select("ul.m_ses li")).transform(EXTRACT_ON_CLICK).transform(EXTRACT_SPLINTER_APOSTROPHE_1)
 				.transform(FN_PREPEND_BASEURL).toMap(Functions.compose(FN_PARSE_INT, EXTRACT_URLPARAM_nom_s));
 	}
 
-	public String getUrl_lawprojectsList(int assemblyNum) {
+	public static String getUrl_lawprojectsList(int assemblyNum) {
 		return RADA_BASE_URL + "/pls/zweb2/webproc2_5_1_J?ses=" + (10001 + assemblyNum) + "&num_s=2&num=&date1=&date2=&name_zp=&out_type=&id=&page=1&zp_cnt=-1";
 	}
 
-	public FluentIterable<String> getUrls_lawprojects(Document lawprojectsListPage) {
+	public static FluentIterable<String> getUrls_lawprojects(Document lawprojectsListPage) {
 		return FluentIterable.from(lawprojectsListPage.select(".information_block table a")).transform(EXTRACT_HREF);
 	}
 
@@ -186,74 +186,74 @@ public class RadaContentHelper {
 					}
 				});
 
-		final RadaContentHelper unit = new RadaContentHelper();
+		final ExtractAttr extractSrc = new ExtractAttr("src");
 		for (int i = 7; i > 3; i--) {
-			FluentIterable.from(jSoup.get(unit.getUrl_deputeesListPage(i)).select(".search-filter-results li")).transform(new Function<Element, Element>() {
-				// ExtractAttr extractSrc = new ExtractAttr("src");
+			FluentIterable.from(jSoup.get(RadaContentHelper.getUrl_deputeesListPage(i)).select(".search-filter-results li"))
+					.transform(new Function<Element, Element>() {
 
+						@Override
+						public Element apply(Element elem) {
+							try {
+								FluentIterable.from(jSoup.get(EXTRACT_HREF.apply(elem.select(".title a").first())).select(".information_block_ins .topTitle a"))
+										.transform(EXTRACT_HREF).transform(new Function<String, String>() {
+											@Override
+											public String apply(String url) {
+												try {
+													jSoup.get(url);
+												} catch (Exception e) {
+													e.printStackTrace();
+												}
+												return "";
+											}
+										}).toList();
+								jSoup.get(extractSrc.apply(elem.select(".thumbnail img").first()));
+							} catch (Exception e) {
+								e.printStackTrace();
+							}
+							return elem;
+						}
+					}).toList();
+			jSoup.flushCache();
+		}
+		for (int i = 7; i > 6; i--) {
+			RadaContentHelper.getUrls_lawprojects(jSoup.get(RadaContentHelper.getUrl_lawprojectsList(i))).transform(new Function<String, String>() {
 				@Override
-				public Element apply(Element elem) {
+				public String apply(String url) {
 					try {
-						FluentIterable.from(jSoup.get(EXTRACT_HREF.apply(elem.select(".title a").first())).select(".information_block_ins .topTitle a"))
-								.transform(EXTRACT_HREF).transform(new Function<String, String>() {
-									@Override
-									public String apply(String url) {
-										try {
-											jSoup.get(url);
-										} catch (Exception e) {
-											e.printStackTrace();
-										}
-										return "";
-									}
-								}).toList();
-						// jSoup.get(extractSrc.apply(elem.select(".thumbnail img").first()));
+						jSoup.get(url);
 					} catch (Exception e) {
 						e.printStackTrace();
 					}
-					return elem;
+					return "";
 				}
-			}).toList();
+			}).toSet();
 			jSoup.flushCache();
 		}
-		// for (int i = 7; i > 6; i--) {
-		// unit.getUrls_lawprojects(jSoup.get(unit.getUrl_lawprojectsList(i))).transform(new Function<String, String>() {
-		// @Override
-		// public String apply(String url) {
-		// try {
-		// jSoup.get(url);
-		// } catch (Exception e) {
-		// e.printStackTrace();
-		// }
-		// return "";
-		// }
-		// }).toSet();
-		// jSoup.flushCache();
-		// }
-		// for (int i = 7; i >= 3;) {
-		// try {
-		// System.out.println("Скликання " + i);
-		// fetchVotes(i, jSoup, unit);
-		// i--;
-		// } catch (Exception e) {
-		// jSoup.flushCache();
-		// Thread.sleep(3 * 60 * 1000);
-		// } finally {
-		// jSoup.flushCache();
-		// }
-		// }
+		for (int i = 7; i >= 3;) {
+			try {
+				System.out.println("Скликання " + i);
+				fetchVotes(i, jSoup);
+				i--;
+			} catch (Exception e) {
+				jSoup.flushCache();
+				Thread.sleep(3 * 60 * 1000);
+			} finally {
+				jSoup.flushCache();
+			}
+		}
 	}
 
-	protected static void fetchVotes(int i, final CachingJsoup jSoup, final RadaContentHelper unit) throws Exception {
+	protected static void fetchVotes(int i, final CachingJsoup jSoup) throws Exception {
 		final int skl = i;
-		FluentIterable.from(unit.getUrls_sessionDetailsPages(jSoup.get(unit.getUrl_sessionListPage(i))).entrySet())
+		FluentIterable.from(RadaContentHelper.getUrls_sessionDetailsPages(jSoup.get(RadaContentHelper.getUrl_sessionListPage(i))).entrySet())
 				.transform(new Function<Map.Entry<String, Integer>, List<String>>() {
 					@Override
 					public List<String> apply(Entry<String, Integer> entry) {
 						final String sessionInfo = String.format("Скликання %s, сесія %s:", skl, EXTRACT_URLPARAM_nom_s.apply(entry.getKey()));
-						List<String> result = unit.getUrls_sessionDayUrls(jSoup.getSafe(entry.getKey())).transform(new Function<String, String>() {
+						List<String> result = RadaContentHelper.getUrls_sessionDayUrls(jSoup.getSafe(entry.getKey())).transform(new Function<String, String>() {
 							@Override
 							public String apply(String sessionDayUrl) {
-								FluentIterable<String> votesLinks = unit.getUrls_votes(jSoup.getSafe(sessionDayUrl));
+								FluentIterable<String> votesLinks = RadaContentHelper.getUrls_votes(jSoup.getSafe(sessionDayUrl));
 								final String sesDayInfo = sessionInfo + " - " + sessionDayUrl.split("\\?")[1];
 								int vls = votesLinks.size();
 								for (int i = 0; i < vls; i++) {
