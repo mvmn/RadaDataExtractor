@@ -1,0 +1,38 @@
+Session list arch (ul.m_ses li):
+- http://w1.c1.rada.gov.ua/pls/radan_gs09/ns_h1 
+- http://w1.c1.rada.gov.ua/pls/radan_gs09/ns_arh_h1?nom_skl=3
+Session data:
+- http://w1.c1.rada.gov.ua/pls/radan_gs09/ns_h1_l?nom_s=1
+- http://w1.c1.rada.gov.ua/pls/radan_gs09/ns_arh_h1_l?nom_s=1&nom_skl=7
+Session day:
+- http://w1.c1.rada.gov.ua/pls/radan_gs09/ns_h2?day_=25&month_=12&year=2014&nom_s=1 
+- http://w1.c1.rada.gov.ua/pls/radan_gs09/ns_arh_h2?day_=25&month_=05&year=2006&nom_s=1&nom_skl=5
+
+Write reg:
+- http://w1.c1.rada.gov.ua/pls/radan_gs09/ns_reg_write?g_id=5911 
+- http://w1.c1.rada.gov.ua/pls/radan_gs09/ns_arh_reg_write?g_id=372807&n_skl=7
+Elect reg:
+- http://w1.c1.rada.gov.ua/pls/radan_gs09/ns_reg?g_id=209 
+- http://w1.c1.rada.gov.ua/pls/radan_gs09/ns_arh_reg?g_id=23007&n_skl=7
+Vote:
+- http://w1.c1.rada.gov.ua/pls/radan_gs09/ns_golos?g_id=210 
+- http://w1.c1.rada.gov.ua/pls/radan_gs09/ns_arh_golos?g_id=23207&n_skl=7
+
+Lawprojects per assembly (paginated):
+- http://w1.c1.rada.gov.ua/pls/zweb2/webproc2_5_1_J?ses=10009&num_s=2&num=&date1=&date2=&name_zp=&out_type=&id=&page=1
+- http://w1.c1.rada.gov.ua/pls/zweb2/webproc2_5_1_J?ses=10008&num_s=2&num=&date1=&date2=&name_zp=&out_type=&id=&page=1
+
+All lawprojects per assembly (no pagination):
+http://w1.c1.rada.gov.ua/pls/zweb2/webproc2_5_1_J?ses=10002&num_s=2&num=&date1=&date2=&name_zp=&out_type=&id=&page=1&zp_cnt=-1
+ses=10001+assembly num
+
+Deputy info (full name + photo link) + ID (2-443), current assembly:
+- http://w1.c1.rada.gov.ua/pls/radan_gs09/zal_frack_ank?kod=443
+previous assemblies:
+- http://w1.c1.rada.gov.ua/pls/radan_gs09/ns_arh_dep_ank?kod=207
+- http://w1.c1.rada.gov.ua/pls/radan_gs09/ns_arh_dep_ank?kod=48607
+(looks like ID for 7-th assembly is str(N)+07)
+
+ID for 5-th assembly:
+903605
+(str(N)+05)
