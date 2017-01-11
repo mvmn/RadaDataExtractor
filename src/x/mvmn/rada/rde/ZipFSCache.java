@@ -43,6 +43,18 @@ public class ZipFSCache {
 		reopen();
 	}
 
+	public void close() throws Exception {
+		writeLock.lock();
+		try {
+			if (fs != null) {
+				fs.close();
+			}
+			fs = null;
+		} finally {
+			writeLock.unlock();
+		}
+	}
+
 	public void reopen() throws Exception {
 		writeLock.lock();
 		try {
@@ -53,7 +65,6 @@ public class ZipFSCache {
 		} finally {
 			writeLock.unlock();
 		}
-
 	}
 
 	protected Path getCachePath(final String key) {

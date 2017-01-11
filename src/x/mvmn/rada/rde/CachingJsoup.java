@@ -1,9 +1,9 @@
 package x.mvmn.rada.rde;
 
+import java.util.function.Predicate;
+
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
-
-import com.google.common.base.Predicate;
 
 public class CachingJsoup {
 
@@ -35,9 +35,13 @@ public class CachingJsoup {
 	public String httpGet(final String url, final boolean getFromCache, final boolean putToCache) throws Exception {
 		String content = getFromCache ? cache.get(url) : null;
 		if (content != null) {
-			onCacheHit.apply(url);
+			if (onCacheHit != null) {
+				onCacheHit.test(url);
+			}
 		} else {
-			onCacheMiss.apply(url);
+			if (onCacheMiss != null) {
+				onCacheMiss.test(url);
+			}
 			content = Jsoup.connect(url).userAgent(USER_AGENT).timeout(TIMEOUT).execute().body();
 			if (putToCache) {
 				cache.put(url, content);
@@ -51,6 +55,14 @@ public class CachingJsoup {
 		final Document result = Jsoup.parse(content);
 		result.setBaseUri(url);
 		return result;
+	}
+
+	public void close() {
+		try {
+			cache.close();
+		} catch (Exception e) {
+			throw new RuntimeException(e);
+		}
 	}
 
 	public void flushCache() {
