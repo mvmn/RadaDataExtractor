@@ -1,4 +1,4 @@
-package x.mvmn.rada.rde;
+package x.mvmn.rada.rde.cache.impl;
 
 import java.net.URI;
 import java.nio.file.FileSystem;
@@ -9,11 +9,15 @@ import java.nio.file.StandardOpenOption;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.function.Consumer;
 
-public class ZipFSCache {
+import x.mvmn.rada.rde.cache.DataCache;
+
+public class ZipFSCache implements DataCache {
 	static {
 		Map<String, String> env = new HashMap<String, String>();
 		env.put("create", "true");
@@ -27,6 +31,13 @@ public class ZipFSCache {
 	protected final ReadWriteLock rwLock = new ReentrantReadWriteLock();
 	protected final Lock readLock;
 	protected final Lock writeLock;
+	protected final AtomicLong unflushed = new AtomicLong(0);
+	protected Consumer<String> beforeCachePut;
+
+	public ZipFSCache(final String path, Consumer<String> beforeCachePut) throws Exception {
+		this(path);
+		this.beforeCachePut = beforeCachePut;
+	}
 
 	public ZipFSCache(final String path) throws Exception {
 		this.path = path;
@@ -39,10 +50,20 @@ public class ZipFSCache {
 		return path;
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * 
+	 * @see x.mvmn.rada.rde.Cache#flush()
+	 */
 	public void flush() throws Exception {
 		reopen();
 	}
 
+	/*
+	 * (non-Javadoc)
+	 * 
+	 * @see x.mvmn.rada.rde.Cache#close()
+	 */
 	public void close() throws Exception {
 		writeLock.lock();
 		try {
@@ -63,6 +84,7 @@ public class ZipFSCache {
 			}
 			fs = FileSystems.newFileSystem(URI.create("jar:file:" + path), FS_ENV);
 		} finally {
+			unflushed.set(0);
 			writeLock.unlock();
 		}
 	}
@@ -72,13 +94,18 @@ public class ZipFSCache {
 		return fs.getPath("/" + actualKey);
 	}
 
-	public String get(final String key) throws Exception {
-		String result = null;
+	/*
+	 * (non-Javadoc)
+	 * 
+	 * @see x.mvmn.rada.rde.Cache#get(java.lang.String)
+	 */
+	public byte[] get(final String key) throws Exception {
+		byte[] result = null;
 		readLock.lock();
 		try {
 			final Path cacheFile = getCachePath(key);
 			if (Files.exists(cacheFile)) {
-				result = new String(Files.readAllBytes(cacheFile), "UTF-8");
+				result = Files.readAllBytes(cacheFile);
 			}
 		} finally {
 			readLock.unlock();
@@ -86,12 +113,31 @@ public class ZipFSCache {
 		return result;
 	}
 
-	public void put(final String key, final String contents) throws Exception {
+	/*
+	 * (non-Javadoc)
+	 * 
+	 * @see x.mvmn.rada.rde.Cache#put(java.lang.String, byte[])
+	 */
+	public void put(final String key, final byte[] contents) throws Exception {
+		if (beforeCachePut != null) {
+			beforeCachePut.accept(key);
+		}
 		writeLock.lock();
+		unflushed.incrementAndGet();
 		try {
-			Files.write(getCachePath(key), contents.getBytes("UTF-8"), StandardOpenOption.CREATE);
+			Files.write(getCachePath(key), contents, StandardOpenOption.CREATE);
 		} finally {
 			writeLock.unlock();
 		}
+	}
+
+	public long unflushedCount() {
+		return unflushed.get();
+	}
+
+	@Override
+	public boolean exists(String key) throws Exception {
+		final Path cacheFile = getCachePath(key);
+		return Files.exists(cacheFile);
 	}
 }

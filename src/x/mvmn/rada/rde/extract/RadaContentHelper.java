@@ -1,24 +1,29 @@
-package x.mvmn.rada.rde;
+package x.mvmn.rada.rde.extract;
 
 import java.io.File;
-import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 import java.util.function.Function;
-import java.util.function.Predicate;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
 
+import org.apache.http.client.config.RequestConfig;
+import org.apache.http.impl.client.HttpClients;
+import org.apache.http.impl.conn.PoolingHttpClientConnectionManager;
 import org.jsoup.HttpStatusException;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
 
+import x.mvmn.rada.rde.cache.impl.ZipFSCache;
+import x.mvmn.rada.rde.http.impl.CachingHttpClient;
+import x.mvmn.rada.rde.jsoup.JsoupWithHttpClient;
+
 public class RadaContentHelper {
 
-	protected static class ExtractAttr implements Function<Element, String> {
+	public static class ExtractAttr implements Function<Element, String> {
 		protected final String attrName;
 
 		public ExtractAttr(final String attrName) {
@@ -31,7 +36,7 @@ public class RadaContentHelper {
 		}
 	}
 
-	protected static class ExtractSplinter implements Function<String, String> {
+	public static class ExtractSplinter implements Function<String, String> {
 		protected final String pattern;
 		protected final int splinterIndex;
 
@@ -46,7 +51,7 @@ public class RadaContentHelper {
 		}
 	}
 
-	protected static class ExtractUrlParam implements Function<String, String> {
+	public static class ExtractUrlParam implements Function<String, String> {
 
 		protected final String param;
 
@@ -56,11 +61,11 @@ public class RadaContentHelper {
 
 		@Override
 		public String apply(String url) {
-			return url.split(param)[1].split("&")[0];
+			return url.split("[\\?&]" + param + "=")[1].split("[&]")[0];
 		}
 	}
 
-	protected static class FunctionStrFormat implements Function<String, String> {
+	public static class FunctionStrFormat implements Function<String, String> {
 
 		protected final String format;
 
@@ -72,19 +77,18 @@ public class RadaContentHelper {
 		public String apply(String arg) {
 			return String.format(format, arg);
 		}
-
 	}
 
 	// /////
-	protected static final String RADA_BASE_URL = "http://w1.c1.rada.gov.ua";
+	public static final String RADA_BASE_URL = "http://w1.c1.rada.gov.ua";
 
-	protected static final ExtractAttr EXTRACT_ON_CLICK = new ExtractAttr("onclick");
-	protected static final ExtractAttr EXTRACT_HREF = new ExtractAttr("abs:href");
-	protected static final ExtractAttr EXTRACT_SRC = new ExtractAttr("src");
-	protected static final ExtractSplinter EXTRACT_SPLINTER_APOSTROPHE_1 = new ExtractSplinter("'", 1);
-	protected static final ExtractUrlParam EXTRACT_URLPARAM_nom_s = new ExtractUrlParam("nom_s=");
-	protected static final Function<String, String> FN_PREPEND_BASEURL = new FunctionStrFormat(RADA_BASE_URL + "%s");
-	protected static final Function<String, Integer> FN_PARSE_INT = new Function<String, Integer>() {
+	public static final ExtractAttr EXTRACT_ON_CLICK = new ExtractAttr("onclick");
+	public static final ExtractAttr EXTRACT_HREF = new ExtractAttr("abs:href");
+	public static final ExtractAttr EXTRACT_SRC = new ExtractAttr("src");
+	public static final ExtractSplinter EXTRACT_SPLINTER_APOSTROPHE_1 = new ExtractSplinter("'", 1);
+	public static final ExtractUrlParam EXTRACT_URLPARAM_nom_s = new ExtractUrlParam("nom_s");
+	public static final Function<String, String> FN_PREPEND_BASEURL = new FunctionStrFormat(RADA_BASE_URL + "%s");
+	public static final Function<String, Integer> FN_PARSE_INT = new Function<String, Integer>() {
 		@Override
 		public Integer apply(final String arg) {
 			return Integer.parseInt(arg.trim());
@@ -146,9 +150,9 @@ public class RadaContentHelper {
 		return StreamSupport.stream(sessionDetailsPage.select("table li a").spliterator(), false).map(EXTRACT_HREF);
 	}
 
-	public static Map<String, Integer> getUrls_sessionDetailsPages(Document sessionListPage) {
+	public static Map<Integer, String> getUrls_sessionDetailsPages(Document sessionListPage) {
 		return StreamSupport.stream(sessionListPage.select("ul.m_ses li").spliterator(), false).map(EXTRACT_ON_CLICK).map(EXTRACT_SPLINTER_APOSTROPHE_1)
-				.map(FN_PREPEND_BASEURL).collect(Collectors.toMap(EXTRACT_URLPARAM_nom_s, FN_PARSE_INT));
+				.map(FN_PREPEND_BASEURL).collect(Collectors.toMap(EXTRACT_URLPARAM_nom_s.andThen(FN_PARSE_INT), Function.identity()));
 	}
 
 	public static String getUrl_lawprojectsList(int assemblyNum) {
@@ -159,36 +163,26 @@ public class RadaContentHelper {
 		return StreamSupport.stream(lawprojectsListPage.select(".information_block table a").spliterator(), false).map(EXTRACT_HREF);
 	}
 
-	static CachingJsoup jSoup;
-	static volatile String msg;
-
 	public static void main(String args[]) throws Exception {
+		ZipFSCache cache = new ZipFSCache(new File(new File(System.getProperty("user.home", "/")), "radadata_cache.zip").getAbsolutePath());
 
-		jSoup = new CachingJsoup(new ZipFSCache(new File(new File(System.getProperty("user.home", "/")), "radadata_cache.zip").getAbsolutePath()), null,
-				new Predicate<String>() {
-					private int flushTime = 1000;
+		PoolingHttpClientConnectionManager cm = new PoolingHttpClientConnectionManager();
+		cm.setMaxTotal(1000);
+		cm.setDefaultMaxPerRoute(1000);
 
-					@Override
-					public boolean test(String url) {
-						if (msg != null) {
-							System.out.println(msg);
-							msg = null;
-						}
-						System.err.println("Cache miss: " + url);
-						if (--flushTime < 1) {
-							jSoup.flushCache();
-							flushTime = 100;
-						}
-						RadaContentHelper.sleep();
-						return false;
-					}
-				});
+		CachingHttpClient httpClient = new CachingHttpClient(
+				HttpClients.custom().setConnectionManager(cm)
+						.setDefaultRequestConfig(
+								RequestConfig.custom().setConnectTimeout(60 * 1000).setConnectionRequestTimeout(60 * 1000).setSocketTimeout(60 * 1000).build())
+						.build(),
+				cache, "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_11_2) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/46.0.2490.80 Safari/537.36");
+		JsoupWithHttpClient jSoup = new JsoupWithHttpClient(httpClient);
 
-		for (int i = 7; i > 3; i--) {
+		for (int i = 8; i > 3; i--) {
 			StreamSupport.stream(jSoup.get(RadaContentHelper.getUrl_deputeesListPage(i)).select(".search-filter-results li").spliterator(), false)
-					.map(new Function<Element, Element>() {
+					.forEach(new Consumer<Element>() {
 						@Override
-						public Element apply(Element elem) {
+						public void accept(Element elem) {
 							try {
 								StreamSupport.stream(jSoup.get(EXTRACT_HREF.apply(elem.select(".title a").first())).select(".information_block_ins .topTitle a")
 										.spliterator(), false).map(EXTRACT_HREF).map(new Function<String, String>() {
@@ -206,24 +200,20 @@ public class RadaContentHelper {
 							} catch (Exception e) {
 								e.printStackTrace();
 							}
-							return elem;
 						}
-					}).collect(Collectors.toList());
-			jSoup.flushCache();
+					});
 		}
 		for (int i = 7; i > 6; i--) {
-			RadaContentHelper.getUrls_lawprojects(jSoup.get(RadaContentHelper.getUrl_lawprojectsList(i))).map(new Function<String, String>() {
+			RadaContentHelper.getUrls_lawprojects(jSoup.get(RadaContentHelper.getUrl_lawprojectsList(i))).forEach(new Consumer<String>() {
 				@Override
-				public String apply(String url) {
+				public void accept(String url) {
 					try {
 						jSoup.get(url);
 					} catch (Exception e) {
 						e.printStackTrace();
 					}
-					return "";
 				}
-			}).collect(Collectors.toSet());
-			jSoup.flushCache();
+			});
 		}
 		for (int i = 7; i >= 3;) {
 			try {
@@ -231,26 +221,23 @@ public class RadaContentHelper {
 				fetchVotes(i, jSoup);
 				i--;
 			} catch (Exception e) {
-				jSoup.flushCache();
 				Thread.sleep(3 * 60 * 1000);
-			} finally {
-				jSoup.flushCache();
 			}
 		}
 	}
 
-	protected static void fetchVotes(int i, final CachingJsoup jSoup) throws Exception {
+	protected static void fetchVotes(int i, final JsoupWithHttpClient jSoup) throws Exception {
 		final int skl = i;
 		StreamSupport
 				.stream(RadaContentHelper.getUrls_sessionDetailsPages(jSoup.get(RadaContentHelper.getUrl_sessionListPage(i))).entrySet().spliterator(), false)
-				.map(new Function<Map.Entry<String, Integer>, List<String>>() {
+				.forEach(new Consumer<Map.Entry<Integer, String>>() {
 					@Override
-					public List<String> apply(Entry<String, Integer> entry) {
-						final String sessionInfo = String.format("Скликання %s, сесія %s:", skl, EXTRACT_URLPARAM_nom_s.apply(entry.getKey()));
+					public void accept(Entry<Integer, String> entry) {
+						final String sessionInfo = String.format("Скликання %s, сесія %s:", skl, EXTRACT_URLPARAM_nom_s.apply(entry.getValue()));
 
-						Function<String, String> fn = new Function<String, String>() {
+						Consumer<String> fn = new Consumer<String>() {
 							@Override
-							public String apply(String sessionDayUrl) {
+							public void accept(String sessionDayUrl) {
 								Stream<String> votesLinks = RadaContentHelper.getUrls_votes(jSoup.getSafe(sessionDayUrl));
 								final String sesDayInfo = sessionInfo + " - " + sessionDayUrl.split("\\?")[1];
 								final long vls = votesLinks.count();
@@ -259,8 +246,8 @@ public class RadaContentHelper {
 									@Override
 									public void accept(String url) {
 										try {
-											msg = sesDayInfo + ": " + i.incrementAndGet() + "/" + vls;
-											jSoup.httpGet(url, true, true);
+											System.out.println(sesDayInfo + ": " + i.incrementAndGet() + "/" + vls);
+											jSoup.get(url);
 										} catch (HttpStatusException e) {
 											if (e.getStatusCode() != 404) {
 												throw new RuntimeException(e);
@@ -272,14 +259,12 @@ public class RadaContentHelper {
 										}
 									}
 								});
-
-								return "";
 							}
 						};
 
-						return RadaContentHelper.getUrls_sessionDayUrls(jSoup.getSafe(entry.getKey())).map(fn).collect(Collectors.toList());
+						RadaContentHelper.getUrls_sessionDayUrls(jSoup.getSafe(entry.getValue())).forEach(fn);
 					}
-				}).collect(Collectors.toList());
+				});
 	}
 
 	public static void sleep() {
