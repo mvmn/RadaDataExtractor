@@ -57,8 +57,12 @@ public class TrueZipCache implements DataCache {
 
 	@Override
 	public byte[] get(String key) throws Exception {
+		TFile tf = getCachePath(key);
+		if (!tf.exists()) {
+			return null;
+		}
 		readLock.lock();
-		try (TFileInputStream reader = new TFileInputStream(getCachePath(key))) {
+		try (TFileInputStream reader = new TFileInputStream(tf)) {
 			return IOUtils.toByteArray(reader);
 		} finally {
 			readLock.unlock();

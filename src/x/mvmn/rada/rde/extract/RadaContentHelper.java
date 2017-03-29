@@ -133,9 +133,10 @@ public class RadaContentHelper {
 		return result;
 	}
 
-	public static Stream<String> getUrls_votes(Document sessionDayPage) {
-		return StreamSupport.stream(sessionDayPage.select("a[href*=/ns_golos?], a[href*=/ns_arh_golos?]").spliterator(), false).map(EXTRACT_HREF);
-		// .transform(FN_PREPEND_BASEURL);
+	public static Map<String, String> getUrls_votes(Document sessionDayPage) {
+		return StreamSupport.stream(sessionDayPage.select("a[href*=/ns_golos?], a[href*=/ns_arh_golos?]").spliterator(), false)
+				.collect(Collectors.toMap(EXTRACT_HREF, Element::text));
+
 	}
 
 	public static Stream<String> getUrls_writtenRegs(Document sessionDayPage) {
@@ -238,7 +239,7 @@ public class RadaContentHelper {
 						Consumer<String> fn = new Consumer<String>() {
 							@Override
 							public void accept(String sessionDayUrl) {
-								Stream<String> votesLinks = RadaContentHelper.getUrls_votes(jSoup.getSafe(sessionDayUrl));
+								Stream<String> votesLinks = RadaContentHelper.getUrls_votes(jSoup.getSafe(sessionDayUrl)).keySet().stream();
 								final String sesDayInfo = sessionInfo + " - " + sessionDayUrl.split("\\?")[1];
 								final long vls = votesLinks.count();
 								final AtomicInteger i = new AtomicInteger(0);
