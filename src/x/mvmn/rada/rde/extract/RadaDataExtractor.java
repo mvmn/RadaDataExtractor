@@ -112,20 +112,21 @@ public class RadaDataExtractor {
 				RequestConfig.custom().setConnectTimeout(60 * 1000).setConnectionRequestTimeout(60 * 1000).setSocketTimeout(60 * 1000).build()).build();
 
 		RadaDataExtractor rada = new RadaDataExtractor(commonsHttpClient, cache);
-		Map<Integer, String> sessionLinks = rada.listRadaSessionUrls(8, refresh);
-		System.out.println(sessionLinks);
-		Map<RadaSessionDayInfo, String> sessionDays = rada.listSessionDays(sessionLinks.get(1), refresh)
-				.collect(Collectors.toMap(RadaSessionDayInfo.FROM_SESSION_DAY_URL, Function.identity()));
-		SortedMap<RadaSessionDayInfo, String> sessionDaysSorted = new TreeMap<>(sessionDays);
-		// for (Map.Entry<RadaSessionDayInfo, String> urlEntry : sessionDaysSorted.entrySet()) {
-		// System.out.println(urlEntry.getKey() + " == " + urlEntry.getValue());
-		// }
+		for (Map.Entry<Integer, String> sessionLinksEntry : rada.listRadaSessionUrls(8, refresh).entrySet()) {
+			Map<RadaSessionDayInfo, String> sessionDays = rada.listSessionDays(sessionLinksEntry.getValue(), refresh)
+					.collect(Collectors.toMap(RadaSessionDayInfo.FROM_SESSION_DAY_URL, Function.identity()));
+			SortedMap<RadaSessionDayInfo, String> sessionDaysSorted = new TreeMap<>(sessionDays);
 
-		RadaSessionDayInfo sd1 = sessionDaysSorted.keySet().iterator().next();
-		System.out.println(sd1);
-		String votePageUrl = rada.listVotes(sessionDaysSorted.get(sd1), refresh).keySet().iterator().next();
-		System.out.println(votePageUrl);
-		System.out.println(rada.parseVote(votePageUrl, refresh));
+			for (Map.Entry<RadaSessionDayInfo, String> sessionDay : sessionDaysSorted.entrySet()) {
+				System.out.println("Fetching session " + sessionLinksEntry.getKey() + " day: " + sessionDay.getKey());
+				Map<String, String> votes = rada.listVotes(sessionDay.getValue(), true);
+				int i = 1;
+				for (Map.Entry<String, String> voteLink : votes.entrySet()) {
+					System.out.println("Fetching vote " + (i++) + " of " + votes.size() + ": " + voteLink.getValue());
+					// System.out.println(rada.parseVote(voteLink.getKey(), refresh));
+				}
+			}
+		}
 
 		cache.close();
 	}
