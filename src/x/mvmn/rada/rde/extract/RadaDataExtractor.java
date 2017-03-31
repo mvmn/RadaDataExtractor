@@ -7,7 +7,6 @@ import java.util.TreeMap;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 import org.apache.http.client.config.RequestConfig;
 import org.apache.http.impl.client.CloseableHttpClient;
@@ -45,16 +44,17 @@ public class RadaDataExtractor {
 		return result;
 	}
 
-	public Stream<String> listSessionDays(String sessionPageUrl, boolean refresh) {
-		return RadaContentHelper.getUrls_sessionDayUrls(jSoup.getSafe(sessionPageUrl, !refresh, true));
+	public Map<RadaSessionDayInfo, String> listSessionDays(String sessionPageUrl, boolean refresh) {
+		return RadaContentHelper.getUrls_sessionDayUrls(jSoup.getSafe(sessionPageUrl, !refresh, true))
+				.collect(Collectors.toMap(RadaSessionDayInfo.FROM_SESSION_DAY_URL, Function.identity()));
 	}
 
-	public Stream<String> listSessionDays(int radaAssembly, int sessionNumber, boolean refresh) {
-		Stream<String> result = Stream.empty();
+	public Map<RadaSessionDayInfo, String> listSessionDays(int radaAssembly, int sessionNumber, boolean refresh) {
+		Map<RadaSessionDayInfo, String> result = new TreeMap<>();
 
 		String sessionPageUrl = listRadaSessionUrls(radaAssembly, refresh).get(sessionNumber);
 		if (sessionPageUrl != null) {
-			result = listSessionDays(sessionPageUrl, refresh);
+			result.putAll(listSessionDays(sessionPageUrl, refresh));
 		}
 
 		return result;
@@ -113,8 +113,7 @@ public class RadaDataExtractor {
 
 		RadaDataExtractor rada = new RadaDataExtractor(commonsHttpClient, cache);
 		for (Map.Entry<Integer, String> sessionLinksEntry : rada.listRadaSessionUrls(8, refresh).entrySet()) {
-			Map<RadaSessionDayInfo, String> sessionDays = rada.listSessionDays(sessionLinksEntry.getValue(), refresh)
-					.collect(Collectors.toMap(RadaSessionDayInfo.FROM_SESSION_DAY_URL, Function.identity()));
+			Map<RadaSessionDayInfo, String> sessionDays = rada.listSessionDays(sessionLinksEntry.getValue(), refresh);
 			SortedMap<RadaSessionDayInfo, String> sessionDaysSorted = new TreeMap<>(sessionDays);
 
 			for (Map.Entry<RadaSessionDayInfo, String> sessionDay : sessionDaysSorted.entrySet()) {
