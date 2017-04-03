@@ -35,24 +35,27 @@ public class CachingHttpClient implements HttpClient {
 		cache.flush();
 	}
 
-	public HttpClientResponse get(String absoluteUrl) throws Exception {
+	public CachingHttpClientResponse get(String absoluteUrl) throws Exception {
 		return get(absoluteUrl, true, true);
 	}
 
-	public HttpClientResponse get(String absoluteUrl, boolean getFromCache, boolean storeToCache) throws Exception {
+	public CachingHttpClientResponse get(String absoluteUrl, boolean getFromCache, boolean storeToCache) throws Exception {
 		HttpClientResponse result = null;
 		boolean newlyObtained = false;
+		boolean cacheHit = false;
 		if (getFromCache) {
 			result = doCacheGet(absoluteUrl);
 		}
 		if (result == null) {
 			result = doHttpGet(absoluteUrl);
 			newlyObtained = true;
+		} else {
+			cacheHit = true;
 		}
 		if (storeToCache && result != null && newlyObtained) {
 			doCachePut(absoluteUrl, result);
 		}
-		return result;
+		return result != null ? new CachingHttpClientResponse(result.getContent(), result.getCharset(), cacheHit) : null;
 	}
 
 	protected HttpClientResponse doCacheGet(String url) throws Exception {
@@ -78,8 +81,13 @@ public class CachingHttpClient implements HttpClient {
 
 		try (CloseableHttpResponse response = httpClient.execute(get)) {
 			HttpEntity entity = response.getEntity();
-			if (entity != null) {
-				content = EntityUtils.toByteArray(entity);
+			if (response.getStatusLine().getStatusCode() == 200) {
+				if (entity != null) {
+					content = EntityUtils.toByteArray(entity);
+				}
+			} else {
+				throw new RuntimeException("Bad status code: " + response.getStatusLine().getStatusCode() + ". Response content: "
+						+ (entity != null ? EntityUtils.toByteArray(entity) : " -- none --"));
 			}
 			for (Header header : response.getHeaders("Content-Type")) {
 				String hv = header.getValue();
