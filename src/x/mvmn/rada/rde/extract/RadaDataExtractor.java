@@ -1,12 +1,12 @@
 package x.mvmn.rada.rde.extract;
 
 import java.io.File;
+import java.util.Collections;
+import java.util.List;
 import java.util.Map;
-import java.util.SortedMap;
-import java.util.TreeMap;
 import java.util.function.Consumer;
-import java.util.function.Function;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import org.apache.http.client.config.RequestConfig;
 import org.apache.http.impl.client.CloseableHttpClient;
@@ -38,34 +38,27 @@ public class RadaDataExtractor {
 		this.jSoup = new JsoupWithCachingHttpClient(this.httpClient);
 	}
 
-	public Map<Integer, String> listRadaSessionUrls(int radaAssembly, boolean refresh) {
-		String sessionListPageUrl = RadaContentHelper.getUrl_sessionListPage(radaAssembly);
-		Map<Integer, String> result = RadaContentHelper.getUrls_sessionDetailsPages(jSoup.getSafe(sessionListPageUrl, !refresh, true));
-		return result;
+	protected <T> List<T> toList(Stream<T> stream) {
+		return stream.collect(Collectors.toList());
 	}
 
-	public Map<RadaSessionDayInfo, String> listSessionDays(String sessionPageUrl, boolean refresh) {
-		return RadaContentHelper.getUrls_sessionDayUrls(jSoup.getSafe(sessionPageUrl, !refresh, true))
-				.collect(Collectors.toMap(RadaSessionDayInfo.FROM_SESSION_DAY_URL, Function.identity()));
+	public List<Integer> listSessionNumbers(int assembly, boolean refresh) {
+		return toList(RadaContentHelper.getSessionNumbers(jSoup.getSafe(RadaContentHelper.getUrl_sessionListPage(assembly), !refresh, true)));
 	}
 
-	public Map<RadaSessionDayInfo, String> listSessionDays(int radaAssembly, int sessionNumber, boolean refresh) {
-		Map<RadaSessionDayInfo, String> result = new TreeMap<>();
-
-		String sessionPageUrl = listRadaSessionUrls(radaAssembly, refresh).get(sessionNumber);
-		if (sessionPageUrl != null) {
-			result.putAll(listSessionDays(sessionPageUrl, refresh));
-		}
-
-		return result;
+	public List<RadaSessionDayInfo> listSessionDays(int assembly, int sessionNumber, boolean refresh) {
+		return toList(
+				RadaContentHelper.getSessionDayInfos(jSoup.getSafe(RadaContentHelper.getUrl_sessionDetailsPage(assembly, sessionNumber), !refresh, true)));
 	}
 
-	public Map<String, String> listVotes(String sessionDayPageUrl, boolean refresh) {
-		return RadaContentHelper.getUrls_votes(jSoup.getSafe(sessionDayPageUrl, !refresh, true));
+	public Map<Integer, String> getVotes(int assembly, int sessionNumber, RadaSessionDayInfo sessionDayInfo, boolean refresh) {
+		return RadaContentHelper
+				.getVoteIdsAndTitles(jSoup.getSafe(RadaContentHelper.getUrl_sessionDay(sessionDayInfo, sessionNumber, assembly), !refresh, true));
 	}
 
-	public VotingInfo parseVote(String votePageUrl, boolean refresh) {
+	public VotingInfo parseVote(int assembly, int voteId, boolean refresh) {
 		VotingInfo result = new VotingInfo();
+		String votePageUrl = RadaContentHelper.getVoteUrl(assembly, voteId);
 		Document votePage = jSoup.getSafe(votePageUrl, !refresh, true);
 
 		for (Element it : votePage.select("form *[name=fr][onclick^=sel_frack(]")) {
@@ -95,6 +88,7 @@ public class RadaDataExtractor {
 
 	public static void main(String args[]) throws Exception {
 		boolean refresh = false;
+		int assembly = 8;
 
 		TrueZipCache cache = new TrueZipCache(new File(new File(System.getProperty("user.home", "/")), "radadata_cache.zip").getAbsolutePath(),
 				new Consumer<String>() {
@@ -112,17 +106,19 @@ public class RadaDataExtractor {
 				RequestConfig.custom().setConnectTimeout(60 * 1000).setConnectionRequestTimeout(60 * 1000).setSocketTimeout(60 * 1000).build()).build();
 
 		RadaDataExtractor rada = new RadaDataExtractor(commonsHttpClient, cache);
-		for (Map.Entry<Integer, String> sessionLinksEntry : rada.listRadaSessionUrls(8, refresh).entrySet()) {
-			Map<RadaSessionDayInfo, String> sessionDays = rada.listSessionDays(sessionLinksEntry.getValue(), refresh);
-			SortedMap<RadaSessionDayInfo, String> sessionDaysSorted = new TreeMap<>(sessionDays);
-
-			for (Map.Entry<RadaSessionDayInfo, String> sessionDay : sessionDaysSorted.entrySet()) {
-				System.out.println("Fetching session " + sessionLinksEntry.getKey() + " day: " + sessionDay.getKey());
-				Map<String, String> votes = rada.listVotes(sessionDay.getValue(), true);
+		for (Integer sessionNumber : rada.listSessionNumbers(assembly, refresh)) {
+			List<RadaSessionDayInfo> sessionDays = rada.listSessionDays(assembly, sessionNumber, refresh);
+			Collections.sort(sessionDays);
+			int c = 1;
+			for (RadaSessionDayInfo sessionDay : sessionDays) {
+				System.out.println("Fetching session " + sessionNumber + " day " + (c++) + "/" + sessionDays.size() + ": " + sessionDay);
+				Map<Integer, String> votes = rada.getVotes(assembly, sessionNumber, sessionDay, refresh);
 				int i = 1;
-				for (Map.Entry<String, String> voteLink : votes.entrySet()) {
-					System.out.println("Fetching vote " + (i++) + " of " + votes.size() + ": " + voteLink.getValue());
-					// System.out.println(rada.parseVote(voteLink.getKey(), refresh));
+				for (Map.Entry<Integer, String> voteInfo : votes.entrySet()) {
+					System.out.println("Fetching vote " + (i++) + " of " + votes.size() + ": " + voteInfo.getValue());
+					// System.out.println(rada.parseVote(assembly, voteInfo.getKey(), refresh));
+					String votePageUrl = RadaContentHelper.getVoteUrl(assembly, voteInfo.getKey());
+					rada.httpClient.get(votePageUrl);
 				}
 			}
 		}

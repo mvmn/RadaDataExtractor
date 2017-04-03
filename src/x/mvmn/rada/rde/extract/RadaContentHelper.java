@@ -2,7 +2,6 @@ package x.mvmn.rada.rde.extract;
 
 import java.io.File;
 import java.util.Map;
-import java.util.Map.Entry;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 import java.util.function.Function;
@@ -20,6 +19,7 @@ import org.jsoup.nodes.Element;
 import x.mvmn.rada.rde.cache.impl.ZipFSCache;
 import x.mvmn.rada.rde.http.impl.CachingHttpClient;
 import x.mvmn.rada.rde.jsoup.JsoupWithHttpClient;
+import x.mvmn.rada.rde.model.RadaSessionDayInfo;
 
 public class RadaContentHelper {
 
@@ -87,6 +87,7 @@ public class RadaContentHelper {
 	public static final ExtractAttr EXTRACT_SRC = new ExtractAttr("src");
 	public static final ExtractSplinter EXTRACT_SPLINTER_APOSTROPHE_1 = new ExtractSplinter("'", 1);
 	public static final ExtractUrlParam EXTRACT_URLPARAM_nom_s = new ExtractUrlParam("nom_s");
+	public static final ExtractUrlParam EXTRACT_URLPARAM_g_id = new ExtractUrlParam("g_id");
 	public static final Function<String, String> FN_PREPEND_BASEURL = new FunctionStrFormat(RADA_BASE_URL + "%s");
 	public static final Function<String, Integer> FN_PARSE_INT = new Function<String, Integer>() {
 		@Override
@@ -133,27 +134,55 @@ public class RadaContentHelper {
 		return result;
 	}
 
-	public static Map<String, String> getUrls_votes(Document sessionDayPage) {
-		return StreamSupport.stream(sessionDayPage.select("a[href*=/ns_golos?], a[href*=/ns_arh_golos?]").spliterator(), false)
-				.collect(Collectors.toMap(EXTRACT_HREF, Element::text));
+	public static String getVoteUrl(int assembly, int voteId) {
+		if (assembly == 8) {
+			return "http://w1.c1.rada.gov.ua/pls/radan_gs09/ns_golos?g_id=" + voteId;
+		} else {
+			return "http://w1.c1.rada.gov.ua/pls/radan_gs09/ns_arh_golos?g_id=" + voteId + "&n_skl=7";
+		}
+	}
 
+	public static Map<Integer, String> getVoteIdsAndTitles(Document sessionDayPage) {
+		return StreamSupport.stream(sessionDayPage.select("a[href*=/ns_golos?], a[href*=/ns_arh_golos?]").spliterator(), false)
+				.collect(Collectors.toMap(EXTRACT_HREF.andThen(EXTRACT_URLPARAM_g_id).andThen(FN_PARSE_INT), Element::text));
 	}
 
 	public static Stream<String> getUrls_writtenRegs(Document sessionDayPage) {
+		// FIXME: return IDs, not URLs. Construct URLs from IDs
 		return StreamSupport.stream(sessionDayPage.select("a[href*=/ns_reg_write?], a[href*=/ns_arh_reg_write?]").spliterator(), false).map(EXTRACT_HREF);
 	}
 
 	public static Stream<String> getUrls_eRegs(Document sessionDayPage) {
+		// FIXME: return IDs, not URLs. Construct URLs from IDs
 		return StreamSupport.stream(sessionDayPage.select("a[href*=/ns_reg?], a[href*=/ns_arh_reg?]").spliterator(), false).map(EXTRACT_HREF);
 	}
 
-	public static Stream<String> getUrls_sessionDayUrls(Document sessionDetailsPage) {
-		return StreamSupport.stream(sessionDetailsPage.select("table li a").spliterator(), false).map(EXTRACT_HREF);
+	public static Stream<RadaSessionDayInfo> getSessionDayInfos(Document sessionDetailsPage) {
+		return StreamSupport.stream(sessionDetailsPage.select("table li a").spliterator(), false).map(EXTRACT_HREF)
+				.map(RadaSessionDayInfo.FROM_SESSION_DAY_URL);
 	}
 
-	public static Map<Integer, String> getUrls_sessionDetailsPages(Document sessionListPage) {
+	public static String getUrl_sessionDay(RadaSessionDayInfo sessionDayInfo, int sessionNumber, int assembly) {
+		String commonParams = "?day_=" + String.format("%02d", sessionDayInfo.getDay()) + "&month_=" + String.format("%02d", sessionDayInfo.getMonth())
+				+ "&year=" + sessionDayInfo.getYear() + "&nom_s=" + sessionNumber;
+		if (assembly == 8) {
+			return "http://w1.c1.rada.gov.ua/pls/radan_gs09/ns_h2" + commonParams;
+		} else {
+			return "http://w1.c1.rada.gov.ua/pls/radan_gs09/ns_arh_h2" + commonParams + "&nom_skl=" + assembly;
+		}
+	}
+
+	public static String getUrl_sessionDetailsPage(int assembly, int sessionNumber) {
+		if (assembly == 8) {
+			return "http://w1.c1.rada.gov.ua/pls/radan_gs09/ns_h1_l?nom_s=" + sessionNumber;
+		} else {
+			return "http://w1.c1.rada.gov.ua/pls/radan_gs09/ns_arh_h1_l?nom_s=" + sessionNumber + "&nom_skl=" + assembly;
+		}
+	}
+
+	public static Stream<Integer> getSessionNumbers(Document sessionListPage) {
 		return StreamSupport.stream(sessionListPage.select("ul.m_ses li").spliterator(), false).map(EXTRACT_ON_CLICK).map(EXTRACT_SPLINTER_APOSTROPHE_1)
-				.map(FN_PREPEND_BASEURL).collect(Collectors.toMap(EXTRACT_URLPARAM_nom_s.andThen(FN_PARSE_INT), Function.identity()));
+				.map(FN_PREPEND_BASEURL).map(EXTRACT_URLPARAM_nom_s.andThen(FN_PARSE_INT));
 	}
 
 	public static String getUrl_lawprojectsList(int assemblyNum) {
@@ -161,6 +190,7 @@ public class RadaContentHelper {
 	}
 
 	public static Stream<String> getUrls_lawprojects(Document lawprojectsListPage) {
+		// FIXME: return IDs, not URLs. Construct URLs from IDs
 		return StreamSupport.stream(lawprojectsListPage.select(".information_block table a").spliterator(), false).map(EXTRACT_HREF);
 	}
 
@@ -179,7 +209,7 @@ public class RadaContentHelper {
 				cache, "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_11_2) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/46.0.2490.80 Safari/537.36");
 		JsoupWithHttpClient jSoup = new JsoupWithHttpClient(httpClient);
 
-		for (int i = 8; i > 3; i--) {
+		for (int i = 8; i > 7; i--) {
 			StreamSupport.stream(jSoup.get(RadaContentHelper.getUrl_deputeesListPage(i)).select(".search-filter-results li").spliterator(), false)
 					.forEach(new Consumer<Element>() {
 						@Override
@@ -229,43 +259,44 @@ public class RadaContentHelper {
 
 	protected static void fetchVotes(int i, final JsoupWithHttpClient jSoup) throws Exception {
 		final int skl = i;
-		StreamSupport
-				.stream(RadaContentHelper.getUrls_sessionDetailsPages(jSoup.get(RadaContentHelper.getUrl_sessionListPage(i))).entrySet().spliterator(), false)
-				.forEach(new Consumer<Map.Entry<Integer, String>>() {
+		RadaContentHelper.getSessionNumbers(jSoup.get(RadaContentHelper.getUrl_sessionListPage(i))).forEach(new Consumer<Integer>() {
+			@Override
+			public void accept(Integer sessionNumber) {
+				final String sessionInfo = String.format("Скликання %s, сесія %s:", skl, sessionNumber);
+				System.out.println(sessionInfo);
+
+				Consumer<String> fn = new Consumer<String>() {
 					@Override
-					public void accept(Entry<Integer, String> entry) {
-						final String sessionInfo = String.format("Скликання %s, сесія %s:", skl, EXTRACT_URLPARAM_nom_s.apply(entry.getValue()));
-
-						Consumer<String> fn = new Consumer<String>() {
+					public void accept(String sessionDayUrl) {
+						Stream<String> votesLinks = RadaContentHelper.getVoteIdsAndTitles(jSoup.getSafe(sessionDayUrl)).entrySet().stream()
+								.map(voteIdAndName -> RadaContentHelper.getVoteUrl(skl, voteIdAndName.getKey()));
+						final String sesDayInfo = sessionInfo + " - " + sessionDayUrl.split("\\?")[1];
+						final long vls = votesLinks.count();
+						final AtomicInteger i = new AtomicInteger(0);
+						votesLinks.forEach(new Consumer<String>() {
 							@Override
-							public void accept(String sessionDayUrl) {
-								Stream<String> votesLinks = RadaContentHelper.getUrls_votes(jSoup.getSafe(sessionDayUrl)).keySet().stream();
-								final String sesDayInfo = sessionInfo + " - " + sessionDayUrl.split("\\?")[1];
-								final long vls = votesLinks.count();
-								final AtomicInteger i = new AtomicInteger(0);
-								votesLinks.forEach(new Consumer<String>() {
-									@Override
-									public void accept(String url) {
-										try {
-											System.out.println(sesDayInfo + ": " + i.incrementAndGet() + "/" + vls);
-											jSoup.get(url);
-										} catch (HttpStatusException e) {
-											if (e.getStatusCode() != 404) {
-												throw new RuntimeException(e);
-											} else {
-												System.err.println("!!! 404 !!! " + url);
-											}
-										} catch (Exception e) {
-											throw new RuntimeException(e);
-										}
+							public void accept(String url) {
+								try {
+									System.out.println(sesDayInfo + ": " + i.incrementAndGet() + "/" + vls);
+									jSoup.get(url);
+								} catch (HttpStatusException e) {
+									if (e.getStatusCode() != 404) {
+										throw new RuntimeException(e);
+									} else {
+										System.err.println("!!! 404 !!! " + url);
 									}
-								});
+								} catch (Exception e) {
+									throw new RuntimeException(e);
+								}
 							}
-						};
-
-						RadaContentHelper.getUrls_sessionDayUrls(jSoup.getSafe(entry.getValue())).forEach(fn);
+						});
 					}
-				});
+				};
+
+				RadaContentHelper.getSessionDayInfos(jSoup.getSafe(RadaContentHelper.getUrl_sessionDetailsPage(skl, sessionNumber)))
+						.map(sessionDayInfo -> RadaContentHelper.getUrl_sessionDay(sessionDayInfo, sessionNumber, skl)).forEach(fn);
+			}
+		});
 	}
 
 	public static void sleep() {
