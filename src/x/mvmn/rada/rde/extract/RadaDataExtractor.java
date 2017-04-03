@@ -1,9 +1,12 @@
 package x.mvmn.rada.rde.extract;
 
 import java.io.File;
+import java.text.ParseException;
+import java.text.SimpleDateFormat;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -14,6 +17,7 @@ import org.apache.http.impl.client.HttpClients;
 import org.apache.http.impl.conn.PoolingHttpClientConnectionManager;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
+import org.jsoup.nodes.Node;
 import org.jsoup.select.Elements;
 
 import x.mvmn.rada.rde.cache.DataCache;
@@ -61,6 +65,16 @@ public class RadaDataExtractor {
 		String votePageUrl = RadaContentHelper.getVoteUrl(assembly, voteId);
 		Document votePage = jSoup.getSafe(votePageUrl, !refresh, true);
 
+		for (Node node : votePage.select(".head_gol").first().childNodes()) {
+			if (node.outerHtml().matches("\\s*\\d+\\.\\d+\\.\\d+\\s+\\d+:\\d+\\s*")) {
+				try {
+					result.setVoteDateTime(new SimpleDateFormat("dd.MM.yyyy HH:mm").parse((node.outerHtml().trim().replaceAll("\\s+", " "))));
+				} catch (ParseException e) {
+					throw new RuntimeException("Failed to parse vote date " + node.outerHtml(), e);
+				}
+			}
+		}
+
 		for (Element it : votePage.select("form *[name=fr][onclick^=sel_frack(]")) {
 			int factionId = Integer.parseInt(it.attr("value").split("idf")[1].trim());
 			String factionName = it.nextSibling().toString();
@@ -90,11 +104,13 @@ public class RadaDataExtractor {
 		boolean refresh = false;
 		int assembly = 8;
 
+		final AtomicInteger fetchLimit = new AtomicInteger(3000);
 		TrueZipCache cache = new TrueZipCache(new File(new File(System.getProperty("user.home", "/")), "radadata_cache.zip").getAbsolutePath(),
 				new Consumer<String>() {
 					@Override
 					public void accept(String t) {
 						System.err.println("Saving to cache: " + t);
+						fetchLimit.decrementAndGet();
 					}
 				});
 
@@ -106,23 +122,27 @@ public class RadaDataExtractor {
 				RequestConfig.custom().setConnectTimeout(60 * 1000).setConnectionRequestTimeout(60 * 1000).setSocketTimeout(60 * 1000).build()).build();
 
 		RadaDataExtractor rada = new RadaDataExtractor(commonsHttpClient, cache);
-		for (Integer sessionNumber : rada.listSessionNumbers(assembly, refresh)) {
-			List<RadaSessionDayInfo> sessionDays = rada.listSessionDays(assembly, sessionNumber, refresh);
-			Collections.sort(sessionDays);
-			int c = 1;
-			for (RadaSessionDayInfo sessionDay : sessionDays) {
-				System.out.println("Fetching session " + sessionNumber + " day " + (c++) + "/" + sessionDays.size() + ": " + sessionDay);
-				Map<Integer, String> votes = rada.getVotes(assembly, sessionNumber, sessionDay, refresh);
-				int i = 1;
-				for (Map.Entry<Integer, String> voteInfo : votes.entrySet()) {
-					System.out.println("Fetching vote " + (i++) + " of " + votes.size() + ": " + voteInfo.getValue());
-					// System.out.println(rada.parseVote(assembly, voteInfo.getKey(), refresh));
-					String votePageUrl = RadaContentHelper.getVoteUrl(assembly, voteInfo.getKey());
-					rada.httpClient.get(votePageUrl);
+		work: {
+			for (Integer sessionNumber : rada.listSessionNumbers(assembly, refresh)) {
+				List<RadaSessionDayInfo> sessionDays = rada.listSessionDays(assembly, sessionNumber, refresh);
+				Collections.sort(sessionDays);
+				int c = 1;
+				for (RadaSessionDayInfo sessionDay : sessionDays) {
+					System.out.println("Fetching session " + sessionNumber + " day " + (c++) + "/" + sessionDays.size() + ": " + sessionDay);
+					Map<Integer, String> votes = rada.getVotes(assembly, sessionNumber, sessionDay, refresh);
+					int i = 1;
+					for (Map.Entry<Integer, String> voteInfo : votes.entrySet()) {
+						System.out.println("Fetching vote " + (i++) + " of " + votes.size() + ": " + voteInfo.getValue());
+						// System.out.println(rada.parseVote(assembly, voteInfo.getKey(), refresh));
+						String votePageUrl = RadaContentHelper.getVoteUrl(assembly, voteInfo.getKey());
+						rada.httpClient.get(votePageUrl);
+						if (fetchLimit.get() < 1) {
+							break work;
+						}
+					}
 				}
 			}
 		}
-
 		cache.close();
 	}
 }
